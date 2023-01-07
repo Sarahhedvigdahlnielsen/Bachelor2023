@@ -1,0 +1,87 @@
+---
+title: "Preprocessing"
+author: "Sarah Hedvig Dahl Nielsen & Elisabet Skovgaard Vick"
+date: "2022-12-12"
+output: html_document
+---
+
+```{r}
+# Load package(s)
+pacman::p_load(tidyverse)
+```
+
+```{r}
+# Load logfiles
+tbl <-
+    list.files(path = "./logfiles/",
+               pattern = "*.csv", 
+               full.names = T) %>% 
+    map_df(~read_csv(., col_types = cols(.default = "c"))) 
+
+tbl <- tbl %>% select(-c("...1")) %>% 
+  rename(RT = Reaction_time)
+```
+
+```{r}
+# Changes the ambidextrous participant from "both" to the hand that he actually used
+tbl <- tbl %>%
+  mutate(Handedness = replace(Handedness, Handedness == "both", "left"))
+```
+
+```{r}
+# Recodes time periods for easier coding of congruency, incongruency and same period
+tbl <- tbl %>% mutate(Rstim_period = recode(Rstim_period, 
+                                              "O" = 1,
+                                              "M" = 2,
+                                              "R" = 3),
+                        Lstim_period = recode(Lstim_period, 
+                                              "O" = 1,
+                                              "M" = 2,
+                                              "R" = 3)
+                        )
+```
+
+```{r}
+tbl <- tbl %>% mutate(Target = case_when(
+  Probe == "left" ~ Lstim_period,
+  Probe == "right" ~ Rstim_period
+))
+```
+
+```{r}
+tbl <- tbl %>% mutate(Distractor = case_when(
+  Probe == "left" ~ Rstim_period,
+  Probe == "right" ~ Lstim_period
+))
+```
+
+```{r}
+tbl <- tbl %>% mutate(PeriodDiff = Target - Distractor)
+tbl <- tbl %>% mutate(PeriodDiff = case_when(
+  PeriodDiff == 0 ~ 0,
+  PeriodDiff == -2 ~ 1,
+  PeriodDiff == -1 ~ 2,
+  PeriodDiff == 1 ~ 3,
+  PeriodDiff == 2 ~ 4
+))
+```
+
+```{r}
+tbl <- tbl %>%
+  mutate(StimulusPair = paste(pmin(Rstim, Lstim), 
+                        pmax(Rstim, Lstim)))
+```
+
+```{r}
+# Filtering outliers
+df <- tbl %>% filter(RT > 0.2 & RT < 1.5)
+
+# Calculating percentage excluded
+(length(tbl$RT) - length(df$RT)) / length(tbl$RT) * 100
+# 0.2 %
+```
+
+```{r}
+# Exports csv file
+write_csv(df, "data2.csv")
+```

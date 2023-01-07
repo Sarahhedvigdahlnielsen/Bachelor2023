@@ -1,0 +1,278 @@
+---
+title: "Model1"
+author: "Sarah Hedvig Dahl Nielsen & Elisabet Skovgaard Vick"
+date: "2022-12-12"
+output: html_document
+---
+
+```{r}
+# load packages
+library(brms)
+pacman::p_load(tidyverse, patchwork)
+```
+ 
+```{r}
+# load data
+df <- read_csv("data.csv")
+df2 <- df %>% filter(PeriodDiff != 0)
+```
+
+```{r}
+# Visualization of the data
+density2 <- df2 %>%
+  ggplot( aes(x=RT)) +
+  geom_density(fill="#69b3a2", color="#e9ecef", alpha=0.8) +
+  ggtitle("Density plot without same period trials") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  ylab("Density") +
+  xlab("Reaction time (in seconds)")
+
+ggsave("plots/density.jpeg", plot = density2)
+
+plot(density2)
+```
+
+
+```{r}
+# Model specification
+Model1 <- bf(
+  RT ~ 0 + mo(PeriodDiff) + Probe + mo(PeriodDiff):Probe + (mo(PeriodDiff) + Probe + mo(PeriodDiff):Probe |ID) + (1|StimulusPair))
+ 
+get_prior(Model1, df2, family = shifted_lognormal)
+```
+
+```{r}
+# Prior specification
+Prior1 <- c(
+  prior(normal(0, 1), class=b, coef = "moPeriodDiff"),
+  prior(normal(0, 0.3), class=b, coef = "Probeleft"),
+  prior(normal(0, 0.3), class=b, coef = "Proberight"),
+  prior(normal(0, 0.2), class=b, coef = "moPeriodDiff:Proberight"),
+  prior(normal(0, 0.1), class = sd), 
+  prior(normal(0, 1), class = sd, group = ID),
+  prior(normal(0, 0.2), class = sd, group = ID, coef = "moPeriodDiff"),
+  prior(normal(0, 0.2), class = sd, group = ID, coef = "Proberight"),
+  prior(normal(0, 0.2), class = sd, group = ID, coef = "moPeriodDiff:Proberight"),
+  prior(normal(0, 0.3), class = sd, group = StimulusPair))
+```
+
+```{r}
+# Computing prior
+Model1_prior <- brm(
+ formula = Model1,
+ data = df2,
+ family = shifted_lognormal,
+ prior = Prior1,
+ sample_prior = "only",
+ chain = 2,
+ cores = 2,
+ backend = "cmdstanr",
+ threads = threading(2),
+ control = list(
+   adapt_delta = 0.99,
+   max_treedepth = 20 
+ ),
+)
+```
+
+```{r}
+# prior predictive check
+priorpc1 <- pp_check(Model1_prior, ndraws=100)
+
+priorpc1.2 <- plot(priorpc1 + 
+                     xlim(-0.25,2.5) + 
+                     ylim(0,10) + 
+                     ggtitle("Prior predictive check (Model 1)") +
+                     theme(plot.title = element_text(hjust = 0.5)) +
+                     ylab("Density") +
+                     xlab("Reaction time (in seconds)"))
+
+ggsave("plots/priorpc_model1.jpeg", plot = priorpc1.2)
+```
+
+```{r}
+# Computing posterior
+Model1_Complete <- brm(
+ formula = Model1,
+ data = df2,
+ family = shifted_lognormal,
+ prior = Prior1,
+ sample_prior = TRUE,
+ chain = 4,
+ cores = 2,
+ backend = "cmdstanr",
+ threads = threading(2),
+ control = list(
+   adapt_delta = 0.99,
+   max_treedepth = 20 
+ ),
+ file="models/model1_Complete"
+)
+```
+
+```{r}
+# load the model 
+Model1_Complete <- readRDS("models/model1_Complete.rds")
+```
+
+```{r}
+# posterior predictive checks
+posteriorpc1 <- pp_check(Model1_Complete,ndraws=100)
+
+posteriorpc1 <- plot(posteriorpc1 + 
+                       xlim(0,2) + 
+                       ylim(0,4) + 
+                       ggtitle("Posterior predictive check (Model 1)") +
+                       theme(plot.title = element_text(hjust = 0.5)) +
+                       ylab("Density") +
+                       xlab("Reaction time (in seconds)"))
+
+ggsave("plots/posteriorpc_model1.jpeg", plot = posteriorpc1)
+```
+
+```{r}
+# Model diagnostics
+rhats <- rhat(Model1_Complete)
+max(rhats)
+convergence <- plot(Model1_Complete)
+ggsave("plots/convergence1.jpeg", plot = convergence[[1]])
+ggsave("plots/convergence2.jpeg", plot = convergence[[2]])
+ggsave("plots/convergence3.jpeg", plot = convergence[[3]])
+ggsave("plots/convergence4.jpeg", plot = convergence[[4]])
+```
+
+```{r}
+# model summary
+summary(Model1_Complete)
+```
+
+```{r}
+# check the posteriors 
+post <- as_draws_df(Model1_Complete)
+
+# Conditional effects
+plot <- plot(conditional_effects(Model1_Complete))
+``` 
+
+# TIME PERIOD DIFFERENCE
+```{r}
+post_TPD <- ggplot(post) + 
+  geom_density(aes(bsp_moPeriodDiff), fill = "red", alpha = 0.5) +
+  geom_density(aes(prior_bsp_moPeriodDiff), fill = "blue", alpha = 0.5) +
+  labs(title = "A", x = "Time Period Difference", y = "Density") +
+  xlim(-0.1,0.1) +
+  theme(plot.title = element_text(size = 20))
+
+plot(post_TPD)
+ggsave("plots/A.jpeg")
+```
+
+```{r}
+CE_TPD <- plot[[2]]
+
+CE_TPD <- CE_TPD +
+  labs(title = "B", x = "Time Period Difference", y = "Reaction time (in seconds)") +
+  theme(plot.title = element_text(size = 20))
+
+plot(CE_TPD)
+ggsave("plots/B.jpeg")
+```
+
+```{r}
+post_TPD + CE_TPD
+
+ggsave("plots/AB.jpeg")
+```
+
+# PROBE PLACEMENT
+```{r}
+post_pr <- ggplot(post) + 
+  geom_density(aes(b_Proberight), fill = "red", alpha = 0.5) +
+  geom_density(aes(prior_b_Proberight), fill = "blue", alpha = 0.5) +
+  labs(title = "C", x = "Probe = Right", y = "Density") +
+  theme(plot.title = element_text(size = 20)) +
+  xlim(-1.1,1.1)
+
+plot(post_pr)
+ggsave("plots/C.jpeg")
+```
+
+```{r}
+post_pl <- ggplot(post) + 
+  geom_density(aes(b_Probeleft), fill = "red", alpha = 0.5) +
+  geom_density(aes(prior_b_Probeleft), fill = "blue", alpha = 0.5) +
+  labs(title = "D", x = "Probe = Left", y = "Density") +
+  xlim(-1.1,1.1) +
+  theme(plot.title = element_text(size = 20)) +
+  scale_y_continuous(breaks=seq(0,12,4))
+
+plot(post_pl)
+ggsave("plots/D.jpeg")
+```
+
+```{r}
+post_pr / post_pl
+ggsave("plots/CD.jpeg")
+```
+
+```{r}
+CE_Probe <- plot[[1]]
+
+CE_Probe <- CE_Probe +
+  labs(title = "E", x = "Probe Placement", y = "Reaction time (in seconds)") +
+  theme(plot.title = element_text(size = 20))
+  
+plot(CE_Probe)
+```
+
+```{r}
+plot(CE_Probe)
+ggsave("plots/E.jpeg")
+```
+
+# INTERACTION TERM
+```{r}
+post_TPD_PR <- ggplot(post) + 
+  geom_density(aes(`bsp_moPeriodDiff:Proberight`), fill = "red", alpha = 0.5) +
+  geom_density(aes(`prior_bsp_moPeriodDiff:Proberight`), fill = "blue", alpha = 0.5) +
+  labs(title = "F", x = "Time Period Difference : Probe (Right)", y = "Density") +
+  theme(plot.title = element_text(size = 20)) +
+  xlim(-0.1,0.1)
+
+plot(post_TPD_PR)
+ggsave("plots/F.jpeg")
+```
+
+```{r}
+CE_TPD_P <- plot[[3]]
+
+CE_TPD_P <- CE_TPD_P +
+  labs(title = "G", x ="Time Period Difference", y = "Reaction time (in seconds)") +
+  theme(plot.title = element_text(size = 20)) 
+
+plot(CE_TPD_P)
+ggsave("plots/G.jpeg")
+```
+
+```{r}
+post_TPD_PR + CE_TPD_P
+
+ggsave("plots/FG.jpeg")
+```
+
+# HYPOTHESIS TESTING
+```{r}
+h1 <- hypothesis(Model1_Complete, "moPeriodDiff > 0", class="bsp")
+h1
+```
+
+```{r}
+h2 <- hypothesis(Model1_Complete, "Probeleft > Proberight", class="b")
+h2
+```
+
+```{r}
+h3 <- hypothesis(Model1_Complete, "moPeriodDiff:Proberight > 0", class="bsp")
+h3
+```
+
